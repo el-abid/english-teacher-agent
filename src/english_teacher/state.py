@@ -16,6 +16,7 @@ class TeacherState(TypedDict, total=False):
     # --- student ----------------------------------------------------------- #
     student_name: str
     goal: str
+    language: str  # registry code: "en" / "fr"
     level: str
     level_history: list[str]
 

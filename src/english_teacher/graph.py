@@ -28,7 +28,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from .cefr import normalise_level, topics_for
+from .cefr import normalise_level
+from .languages import get_language
 from .nodes import (
     advance_level,
     advance_topic,
@@ -208,10 +209,17 @@ def compile_graph(checkpointer: Any = None):
     return build_graph().compile(checkpointer=checkpointer or make_checkpointer())
 
 
-def initial_state(student_name: str = "", level: str = "", goal: str = "") -> dict:
+def initial_state(
+    student_name: str = "",
+    level: str = "",
+    goal: str = "",
+    language: str = "en",
+) -> dict:
     resolved = normalise_level(level)
+    chosen = get_language(language)
     return {
         "student_name": student_name,
+        "language": chosen.code,
         "level": resolved or "",
         "goal": goal,
         "mastery": new_mastery(),
@@ -225,5 +233,5 @@ def initial_state(student_name: str = "", level: str = "", goal: str = "") -> di
         "cooldown_until": 0,
         "offers_declined": 0,
         "graduated": False,
-        "plan": topics_for(resolved) if resolved else [],
+        "plan": chosen.topics(resolved) if resolved else [],
     }

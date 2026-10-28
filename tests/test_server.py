@@ -26,6 +26,25 @@ def test_levels_endpoint_lists_the_ladder():
     assert codes == ["A1", "A2", "B1", "B2", "C1", "C2"]
 
 
+def test_levels_endpoint_localises_labels_for_a_language():
+    response = make_client(ScriptedLLM()).get("/api/levels?language=fr")
+    assert response.status_code == 200
+    labels = {item["code"]: item["label"] for item in response.json()}
+    assert labels["A1"] == "Débutant"
+    assert labels["B2"] == "Intermédiaire avancé"
+    assert labels["C2"] == "Maîtrise"
+
+
+def test_languages_endpoint_lists_both_teachers():
+    body = make_client(ScriptedLLM()).get("/api/languages").json()
+    by_code = {item["code"]: item for item in body}
+    assert set(by_code) == {"en", "fr"}
+    assert by_code["en"]["teacher"] == "Ms. Rivera"
+    assert by_code["fr"]["teacher"] == "Mme Laurent"
+    assert by_code["fr"]["native_name"] == "Français"
+    assert by_code["fr"]["initials"] == "ML"
+
+
 def test_start_session_returns_the_placement_prompt():
     llm = ScriptedLLM(structured={"PlacementQuiz": [placement_quiz()]})
     client = make_client(llm)
@@ -83,6 +102,48 @@ def test_reply_is_resumed_into_the_teaching_loop():
     assert body["mastery"]["grammar"] >= 60
 
 
+def test_french_session_speaks_french_and_uses_the_french_syllabus(tmp_path):
+    llm = ScriptedLLM(
+        texts=["Bonjour ! Aujourd'hui, nous travaillons le passé composé."],
+        structured={"PlacementQuiz": [placement_quiz()]},
+    )
+    client = make_client(llm, events_path=str(tmp_path / "events.sqlite"))
+
+    session = client.post(
+        "/api/sessions",
+        json={"name": "Amelie", "level": "A2", "language": "fr"},
+    ).json()
+
+    assert session["language"] == "fr"
+    assert session["language_name"] == "French"
+    assert session["teacher"] == "Mme Laurent"
+    assert session["initials"] == "ML"
+    assert session["level_label"] == "Élémentaire"
+    assert session["reply"].startswith("Bonjour, Amelie ! Je suis Mme Laurent.")
+    assert "Avant la première leçon" in session["reply"]
+    assert "Réponds comme ceci" in session["reply"]
+    assert session["topic"] == "Raconter au passé"
+
+    placement_system = str(llm.structured_calls[0][1][0].content)
+    assert "in French" in placement_system
+
+    response = client.post(
+        f"/api/sessions/{session['thread_id']}/messages",
+        json={"message": "1B 2A 3A"},
+    ).json()
+
+    assert response["kind"] == "teaching"
+    assert response["reply"].startswith("Bonjour !")
+    teaching_system = str(llm.text_calls[-1][0].content)
+    assert "Mme Laurent" in teaching_system
+    assert "Speak French only" in teaching_system
+    assert "Raconter au passé" in teaching_system
+
+    events = client.get("/api/dashboard").json()["events"]
+    assert events
+    assert all("lang=fr" in event["detail"] for event in events)
+
+
 def test_unknown_session_is_a_404():
     client = make_client(ScriptedLLM())
     assert client.get("/api/sessions/nope").status_code == 404
@@ -104,7 +165,8 @@ def test_index_serves_the_app_shell():
     client = make_client(ScriptedLLM())
     response = client.get("/")
     assert response.status_code == 200
-    assert "Ms. Rivera" in response.text
+    assert 'id="languagePicker"' in response.text
+    assert "Start where you are." in response.text
     assert "/static/app.js" in response.text
 
 

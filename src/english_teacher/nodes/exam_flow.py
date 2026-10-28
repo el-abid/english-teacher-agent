@@ -7,9 +7,10 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
-from ..cefr import next_level, topics_for
+from ..cefr import next_level
 from ..config import load_settings
 from ..context import mastery_line, recent_messages, with_user_turn
+from ..languages import Language, get_language
 from ..llm import resolve_llm
 from ..policy import (
     build_remediation,
@@ -63,19 +64,17 @@ def offer_exam(state: TeacherState, config: RunnableConfig) -> dict:
     """Suggest the exam and stop. The student's answer decides what happens next."""
     settings = load_settings()
     llm = resolve_llm(config)
+    language = get_language(state.get("language"))
     level = state.get("level", "B1")
     mastery = state.get("mastery") or new_mastery()
     topics = ", ".join(t["title"] for t in state.get("plan") or [])
 
-    system = offer_prompt(level, mastery_line(mastery), topics, settings.exam_items)
+    system = offer_prompt(language, level, mastery_line(mastery), topics, settings.exam_items)
     text = to_text(
         llm.invoke(with_user_turn(system, recent_messages(state, 4), "Offer the exam now."))
     )
     if not text:
-        text = (
-            f"Your work at {level} looks solid. Do you want to take the {level} exam now? "
-            f"It has {settings.exam_items} questions and one writing task. You can say not yet."
-        )
+        text = language.offer_fallback.format(level=level, items=settings.exam_items)
 
     return {
         "teacher_message": text,
@@ -143,13 +142,15 @@ def build_exam(state: TeacherState, config: RunnableConfig) -> dict:
     """Generate the exam, validate it, then present it."""
     settings = load_settings()
     llm = resolve_llm(config)
+    language = get_language(state.get("language"))
     level = state.get("level", "B1")
-    topics = ", ".join(t["title"] for t in state.get("plan") or topics_for(level))
+    plan = state.get("plan") or language.topics(level)
+    topics = ", ".join(t["title"] for t in plan)
 
     exam: Exam | None = None
     error = ""
     for _ in range(2):
-        prompt = exam_prompt(level, topics, _focus(state), settings.exam_items)
+        prompt = exam_prompt(language, level, topics, _focus(state), settings.exam_items)
         if error:
             prompt += f"\n\nYour previous exam was invalid: {error}. Fix it."
         try:
@@ -164,7 +165,7 @@ def build_exam(state: TeacherState, config: RunnableConfig) -> dict:
     if exam is None:
         raise RuntimeError(f"Could not build a valid {level} exam: {error}")
 
-    message = render_exam(exam)
+    message = render_exam(exam, language)
     return {
         "exam": exam,
         "teacher_message": message,
@@ -177,6 +178,7 @@ def grade_exam(state: TeacherState, config: RunnableConfig) -> dict:
     """Objective part is graded in Python; only the writing sample needs a rubric."""
     settings = load_settings()
     llm = resolve_llm(config)
+    language = get_language(state.get("language"))
     level = state.get("level", "B1")
     exam = state.get("exam")
     if exam is None:
@@ -192,7 +194,9 @@ def grade_exam(state: TeacherState, config: RunnableConfig) -> dict:
         grade = llm.with_structured_output(WritingGrade).invoke(
             [
                 SystemMessage(
-                    content=writing_grade_prompt(level, exam.writing_prompt, exam.writing_criteria)
+                    content=writing_grade_prompt(
+                        language, level, exam.writing_prompt, exam.writing_criteria
+                    )
                 ),
                 HumanMessage(content=writing_text),
             ]
@@ -255,6 +259,7 @@ def grade_exam(state: TeacherState, config: RunnableConfig) -> dict:
 def review_exam(state: TeacherState, config: RunnableConfig) -> dict:
     """Explain the result, then hand over to promotion or remediation."""
     llm = resolve_llm(config)
+    language = get_language(state.get("language"))
     level = state.get("level", "B1")
     result = state.get("exam_result")
     if result is None:
@@ -263,7 +268,7 @@ def review_exam(state: TeacherState, config: RunnableConfig) -> dict:
     text = to_text(
         llm.invoke(
             [
-                SystemMessage(content=results_prompt(level, result)),
+                SystemMessage(content=results_prompt(language, level, result)),
                 HumanMessage(content="Give me my result."),
             ]
         )
@@ -282,6 +287,7 @@ def review_exam(state: TeacherState, config: RunnableConfig) -> dict:
 def advance_level(state: TeacherState, config: RunnableConfig) -> dict:
     """Promote the student, carrying a conservative mastery baseline forward."""
     level = state.get("level", "B1")
+    language = get_language(state.get("language"))
     following = next_level(level)
     history = (
         [*(state.get("level_history") or []), following]
@@ -290,10 +296,7 @@ def advance_level(state: TeacherState, config: RunnableConfig) -> dict:
     )
 
     if following is None:
-        text = (
-            "That is the last exam on the ladder: you have finished C2. "
-            "From here the work is maintenance and style, and you can say you are done."
-        )
+        text = language.finished_line
         return {
             "graduated": True,
             "phase": "done",
@@ -306,7 +309,7 @@ def advance_level(state: TeacherState, config: RunnableConfig) -> dict:
     mastery = state.get("mastery") or new_mastery()
     mean = sum(float(entry.get("score", 0.0)) for entry in mastery.values()) / max(len(mastery), 1)
     baseline = round(min(max(mean * 0.75, 0.45), 0.60), 4)
-    plan = topics_for(following)
+    plan = language.topics(following)
 
     return {
         "level": following,
@@ -327,8 +330,8 @@ def advance_level(state: TeacherState, config: RunnableConfig) -> dict:
     }
 
 
-def _topic_for_skill(level: str, skill: str) -> dict:
-    plan = topics_for(level)
+def _topic_for_skill(language: Language, level: str, skill: str) -> dict:
+    plan = language.topics(level)
     needle = skill.lower()
     for topic in plan:
         haystack = " ".join([topic["title"], topic["can_do"], *topic["grammar"]]).lower()
@@ -340,14 +343,23 @@ def _topic_for_skill(level: str, skill: str) -> dict:
 def remediation(state: TeacherState, config: RunnableConfig) -> dict:
     """Build a targeted review plan and start it immediately."""
     llm = resolve_llm(config)
+    language = get_language(state.get("language"))
     level = state.get("level", "B1")
     result = state.get("exam_result")
     points = list(state.get("failed_points") or (result.failed_points if result else []))
     tasks = build_remediation(points, limit=3)
-    topic = _topic_for_skill(level, tasks[0].skill) if tasks else topics_for(level)[0]
+    topic = (
+        _topic_for_skill(language, level, tasks[0].skill)
+        if tasks
+        else language.topics(level)[0]
+    )
 
     plan = llm.with_structured_output(RemediationPlan).invoke(
-        with_user_turn(remediation_prompt(level, tasks, topic), None, "Write the review plan now.")
+        with_user_turn(
+            remediation_prompt(language, level, tasks, topic),
+            None,
+            "Write the review plan now.",
+        )
     )
 
     activities = "\n".join(
@@ -355,7 +367,7 @@ def remediation(state: TeacherState, config: RunnableConfig) -> dict:
     )
     message = plan.message.strip()
     if activities:
-        message = f"{message}\n\nHere is our plan:\n{activities}"
+        message = f"{message}\n\n{language.plan_header}\n{activities}"
 
     return {
         "teacher_message": message,

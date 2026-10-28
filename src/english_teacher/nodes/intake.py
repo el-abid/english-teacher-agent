@@ -8,8 +8,9 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
-from ..cefr import LEVEL_LABELS, normalise_level, topics_for
+from ..cefr import normalise_level
 from ..context import with_user_turn
+from ..languages import get_language
 from ..llm import resolve_llm
 from ..policy import apply_observed, parse_mcq_submission
 from ..prompts import placement_prompt
@@ -17,18 +18,11 @@ from ..rendering import render_quiz
 from ..schemas import PlacementQuiz
 from ..state import TeacherState
 
-LEVEL_MENU = """Which level do you want to start at?
-
-  A1 Beginner             A2 Elementary
-  B1 Intermediate         B2 Upper-intermediate
-  C1 Advanced             C2 Proficient
-
-Reply with one code (for example: B1)."""
-
 _PLACEMENT_SKILLS = {"grammar", "vocabulary", "reading"}
 _LEVEL_IN_TEXT = re.compile(r"\b([abc][12])\b", re.IGNORECASE)
 _NAME_IN_TEXT = re.compile(
-    r"(?:my name is|i am|i'm|call me)\s+([A-Za-z][A-Za-z'\-]{1,20})", re.IGNORECASE
+    r"(?:my name is|i am|i'm|call me|je m'appelle|moi c'est)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'\-]{1,20})",
+    re.IGNORECASE,
 )
 
 
@@ -41,33 +35,39 @@ def _level_from_text(text: str) -> str | None:
 
 def intake(state: TeacherState, config: RunnableConfig) -> dict:
     """Resolve the starting level, build the syllabus plan, greet the student."""
+    language = get_language(state.get("language"))
     raw_level = state.get("level")
     level = normalise_level(raw_level)
     note = ""
     name = (state.get("student_name") or "").strip()
 
     if level is None:
-        reply = str(interrupt({"kind": "level_choice", "prompt": LEVEL_MENU}))
+        reply = str(interrupt({"kind": "level_choice", "prompt": language.level_menu()}))
         level = normalise_level(reply) or _level_from_text(reply)
         if not name:
             found = _NAME_IN_TEXT.search(reply)
             name = found.group(1).capitalize() if found else ""
         if level is None:
             level = "B1"
-            note = " I could not read a level in your reply, so we start at B1."
+            note = language.note_fallback
 
-    greeting = f"Hi{', ' + name if name else ''}! I'm Ms. Rivera. From today we work at {level}, {LEVEL_LABELS[level]}.{note}"
+    greeting = language.greeting.format(
+        name=f", {name}" if name else "",
+        teacher=language.teacher,
+        level=level,
+        label=language.label(level),
+        note=note,
+    )
 
     goal = (state.get("goal") or "").strip()
     if goal:
-        greeting += f" You said your goal is {goal.rstrip('.')}, so I will aim every task at that."
-    greeting += (
-        " Before lesson one, three quick questions so I don't teach you what you already know."
-    )
+        greeting += language.goal_line.format(goal=goal.rstrip("."))
+    greeting += language.placement_line
 
-    plan = topics_for(level)
+    plan = language.topics(level)
     return {
         "student_name": name,
+        "language": language.code,
         "level": level,
         "level_history": [*(state.get("level_history") or []), level],
         "plan": plan,
@@ -104,12 +104,15 @@ def _sanitise_quiz(quiz: PlacementQuiz) -> PlacementQuiz | None:
 def placement_quiz(state: TeacherState, config: RunnableConfig) -> dict:
     """Ask three level-appropriate questions. Skipped if the model returns junk."""
     llm = resolve_llm(config)
+    language = get_language(state.get("language"))
     level = state.get("level", "B1")
 
     quiz: PlacementQuiz | None = None
     try:
         raw = llm.with_structured_output(PlacementQuiz).invoke(
-            with_user_turn(placement_prompt(level), None, "Write the placement check now.")
+            with_user_turn(
+                placement_prompt(level, language), None, "Write the placement check now."
+            )
         )
         quiz = _sanitise_quiz(raw)
     except Exception:  # noqa: BLE001 - bad model output: placement is optional
@@ -118,7 +121,7 @@ def placement_quiz(state: TeacherState, config: RunnableConfig) -> dict:
     if quiz is None:
         return {"placement_quiz": None, "phase": "teaching"}
 
-    message = f"{state.get('teacher_message', '')}\n\n{render_quiz(quiz)}"
+    message = f"{state.get('teacher_message', '')}\n\n{render_quiz(quiz, language)}"
     return {
         "placement_quiz": quiz,
         "teacher_message": message,

@@ -25,9 +25,10 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from . import alerts
-from .cefr import LEVEL_LABELS, LEVELS, SKILLS
+from .cefr import SKILLS
 from .config import load_env_file, load_settings
 from .graph import compile_graph, initial_state, make_checkpointer
+from .languages import get_language, language_catalogue
 from .observability import EventStore, TokenMeter, detail_for
 from .rendering import to_text
 from .tracing import flush, trace_config, tracing_configured
@@ -41,6 +42,7 @@ class NewSession(BaseModel):
     name: str = Field(default="", max_length=60)
     level: str = Field(default="", max_length=8)
     goal: str = Field(default="", max_length=300)
+    language: str = Field(default="en", max_length=20)
 
 
 class StudentReply(BaseModel):
@@ -72,6 +74,8 @@ def _snapshot(values: dict, interrupts: Any, thread_id: str) -> dict:
     plan = values.get("plan") or []
     topic = values.get("current_topic") or (plan[0] if plan else {})
     result = values.get("exam_result")
+    language = get_language(values.get("language"))
+    level = values.get("level", "")
 
     return {
         "thread_id": thread_id,
@@ -79,8 +83,12 @@ def _snapshot(values: dict, interrupts: Any, thread_id: str) -> dict:
         "reply": (payload or {}).get("prompt", values.get("teacher_message", "")),
         "history": _transcript(values),
         "kind": (payload or {}).get("kind", "done" if values.get("graduated") else "idle"),
-        "level": values.get("level", ""),
-        "level_label": LEVEL_LABELS.get(values.get("level", ""), ""),
+        "language": language.code,
+        "language_name": language.name,
+        "teacher": language.teacher,
+        "initials": language.initials,
+        "level": level,
+        "level_label": language.label(level),
         "phase": values.get("phase", ""),
         "topic": topic.get("title", ""),
         "lessons_completed": int(values.get("lessons_completed", 0)),
@@ -126,7 +134,7 @@ def create_app(
     )
     lock = threading.Lock()
 
-    app = FastAPI(title="English Teacher Agent", docs_url="/api/docs", lifespan=_lifespan)
+    app = FastAPI(title="Language Teacher Agent", docs_url="/api/docs", lifespan=_lifespan)
 
     def config_for(
         thread_id: str,
@@ -158,7 +166,8 @@ def create_app(
         topic = state.get("current_topic") or {}
         topic_id = topic.get("id", "") if isinstance(topic, dict) else str(topic)
         detail = (
-            f"phase={state.get('phase', '')} level={state.get('level', '')} topic={topic_id}"
+            f"lang={state.get('language', 'en')} phase={state.get('phase', '')} "
+            f"level={state.get('level', '')} topic={topic_id}"
         )
         if extra:
             detail = f"{detail} | {extra}"
@@ -197,24 +206,32 @@ def create_app(
         }
 
     @app.get("/api/levels")
-    def levels() -> list[dict]:
-        return [{"code": code, "label": LEVEL_LABELS[code]} for code in LEVELS]
+    def levels(language: str = "") -> list[dict]:
+        return get_language(language).levels()
+
+    @app.get("/api/languages")
+    def languages() -> list[dict]:
+        return language_catalogue()
 
     @app.post("/api/sessions")
     def start_session(payload: NewSession) -> dict:
         thread_id = f"web-{uuid.uuid4().hex[:12]}"
         user_id = payload.name.strip()
+        language = get_language(payload.language)
         config = config_for(
             thread_id,
             user_id=user_id,
-            tags=("web", (payload.level.strip() or "auto").upper()),
+            tags=("web", (payload.level.strip() or "auto").upper(), language.code),
         )
         started = time.perf_counter()
         try:
             with lock:
                 state = graph.invoke(
                     initial_state(
-                        payload.name.strip(), payload.level.strip(), payload.goal.strip()
+                        payload.name.strip(),
+                        payload.level.strip(),
+                        payload.goal.strip(),
+                        language.code,
                     ),
                     config,
                 )
@@ -248,7 +265,11 @@ def create_app(
             config = config_for(
                 thread_id,
                 user_id=user_id,
-                tags=("web", str(current.values.get("level", ""))),
+                tags=(
+                    "web",
+                    str(current.values.get("level", "")),
+                    get_language(current.values.get("language")).code,
+                ),
             )
             started = time.perf_counter()
             try:
@@ -290,7 +311,7 @@ def main() -> None:
     db_path = os.getenv("ENGLISH_TEACHER_DB") or "sessions.sqlite"
     host = os.getenv("ENGLISH_TEACHER_HOST", "127.0.0.1")
     port = int(os.getenv("ENGLISH_TEACHER_PORT", "8000"))
-    print(f"English teacher web UI: http://{host}:{port}  (sessions in {db_path})")
+    print(f"Language teacher web UI: http://{host}:{port}  (sessions in {db_path})")
     uvicorn.run(create_app(db_path=db_path), host=host, port=port)
 
 

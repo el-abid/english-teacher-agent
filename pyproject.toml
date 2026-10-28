@@ -1,7 +1,7 @@
 [project]
 name = "english-teacher-agent"
 version = "0.1.0"
-description = "CEFR-aware AI English teacher agent for high-school students, built with LangGraph"
+description = "CEFR-aware AI language teacher agent for high-school students, built with LangGraph"
 requires-python = ">=3.11"
 dependencies = [
     "langgraph>=1.0",

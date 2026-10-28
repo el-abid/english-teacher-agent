@@ -2,22 +2,27 @@
 
 Everything the model needs to know about the student is injected as data. The
 model never decides promotion, scoring or level changes.
+
+Every function takes the ``Language`` chosen by the student: the persona name,
+the target language and the extra style rule come from there, so adding a
+language never means editing a prompt.
 """
 
 from __future__ import annotations
 
-from .cefr import LEVEL_LABELS, Topic
+from .cefr import Topic
+from .languages import Language
 from .schemas import ExamResult, FailedPoint
 
-SKILLS_FR = "grammar, vocabulary, reading, writing"
+SKILL_LIST = "grammar, vocabulary, reading, writing"
 
-PERSONA = """You are Ms. Rivera, an English teacher with fifteen years of experience \
+PERSONA = """You are {teacher}, a {language} teacher with fifteen years of experience \
 teaching teenagers in high school. You are warm, concrete and never condescending.
 
 Hard rules:
-- Speak English only. If the student writes in another language, reply in English and \
-offer the English sentence they probably needed.
-- Pitch your English at {level} plus one small step (comprehensible input). Do not use \
+- Speak {language} only. If the student writes in another language, reply in {language} and \
+offer the {language} sentence they probably needed.
+- Pitch your {language} at {level} plus one small step (comprehensible input). Do not use \
 vocabulary far above the student's level unless you gloss it.
 - One task per turn. End with a question or a short task. Never end with a lecture.
 - Keep turns under 130 words unless the student asks for a full explanation.
@@ -25,24 +30,32 @@ vocabulary far above the student's level unless you gloss it.
 them to use it once.
 - Never invent scores, levels or exam results. They are given to you by the system.
 - Never promise a promotion. Only the final exam decides.
-"""
+{extra}"""
 
 
-def tutor_persona(level: str) -> str:
-    return PERSONA.format(level=level)
+def tutor_persona(level: str, language: Language) -> str:
+    extra = f"{language.persona_note}\n" if language.persona_note else ""
+    return PERSONA.format(
+        teacher=language.teacher,
+        language=language.name,
+        level=level,
+        extra=extra,
+    )
 
 
-def placement_prompt(level: str) -> str:
+def placement_prompt(level: str, language: Language) -> str:
     return f"""You are writing a three-question placement check for a high-school student \
-who says they are at {level} in English.
+who says they are at {level} in {language.name}.
 
 One question on grammar, one on vocabulary, one short reading comprehension. Four \
 options each (A-D), exactly one correct answer. The questions must be answerable without \
 outside knowledge and must sit exactly at {level}, no higher. Add a one-sentence intro.
+Write every question, option and instruction in {language.name}.
 """
 
 
 def teaching_prompt(
+    language: Language,
     level: str,
     topic: Topic,
     mastery_line: str,
@@ -63,9 +76,9 @@ def teaching_prompt(
         if remediation
         else ""
     )
-    return f"""{tutor_persona(level)}
+    return f"""{tutor_persona(level, language)}
 
-Current level: {level} ({LEVEL_LABELS[level]})
+Current level: {level} ({language.label(level)})
 Current topic: {topic["title"]}
 Can-do target: {topic["can_do"]}
 Grammar: {", ".join(topic["grammar"])}
@@ -85,15 +98,15 @@ answer in one sentence before moving on. Never cover the whole topic in one turn
 """
 
 
-def assessment_prompt(level: str, topic: Topic) -> str:
-    return f"""{tutor_persona(level)}
+def assessment_prompt(language: Language, level: str, topic: Topic) -> str:
+    return f"""{tutor_persona(level, language)}
 
 You are grading ONE student answer for a {level} class on '{topic["title"]}'.
 
 Return an Assessment object:
-- feedback: 2-4 sentences addressed to the student, warm and specific. Name what was \
-right before what was wrong.
-- scores: only the skills this answer actually shows. Use {SKILLS_FR}. Values 0..1. \
+- feedback: 2-4 sentences addressed to the student, warm and specific, in {language.name}. \
+Name what was right before what was wrong.
+- scores: only the skills this answer actually shows. Use {SKILL_LIST}. Values 0..1. \
 Be strict: 0.9 means clearly at {level} standard, 0.5 means barely holding on.
 - topic_progress: how much of this topic's can-do target the answer demonstrates, 0..1.
 - topic_complete: true only if the answer shows the student can do the can-do target \
@@ -104,8 +117,14 @@ Do not grade skills the answer does not touch. Do not write the next lesson.
 """
 
 
-def readiness_prompt(level: str, mastery_line: str, lessons: int, topic_titles: str) -> str:
-    return f"""{tutor_persona(level)}
+def readiness_prompt(
+    language: Language,
+    level: str,
+    mastery_line: str,
+    lessons: int,
+    topic_titles: str,
+) -> str:
+    return f"""{tutor_persona(level, language)}
 
 The numeric readiness gate for the {level} exam is already passed. Give your holistic \
 opinion: has this student, across {lessons} completed topics ({topic_titles}), shown \
@@ -119,23 +138,35 @@ rationale to two sentences.
 """
 
 
-def offer_prompt(level: str, mastery_line: str, topics: str, item_count: int) -> str:
-    return f"""{tutor_persona(level)}
+def offer_prompt(
+    language: Language,
+    level: str,
+    mastery_line: str,
+    topics: str,
+    item_count: int,
+) -> str:
+    return f"""{tutor_persona(level, language)}
 
 The student has met the numeric readiness gate for the {level} exam.
 Mastery so far:
 {mastery_line}
 Topics covered: {topics}
 
-Suggest the exam in under 100 words: name two concrete things they improved, say the \
-exam has {item_count} questions plus one writing task, and that taking it now is their \
-choice. End with one direct question. Do not announce a promotion and do not promise \
-they will pass.
+Suggest the exam in under 100 words, in {language.name}: name two concrete things they \
+improved, say the exam has {item_count} questions plus one writing task, and that taking \
+it now is their choice. End with one direct question. Do not announce a promotion and do \
+not promise they will pass.
 """
 
 
-def exam_prompt(level: str, topics: str, focus: str, item_count: int) -> str:
-    return f"""You are writing the final {level} exam for a high-school English course.
+def exam_prompt(
+    language: Language,
+    level: str,
+    topics: str,
+    focus: str,
+    item_count: int,
+) -> str:
+    return f"""You are writing the final {level} exam for a high-school {language.name} course.
 
 Cover these topics: {topics}
 Extra focus on: {focus or "balanced coverage"}
@@ -147,34 +178,47 @@ comprehension questions).
 - Every question must be answerable from the item itself: no outside facts, no ambiguity.
 - Language level must be {level}, not above.
 - One writing task of 120-180 words with three clear criteria.
+- Write every question, option, instruction and the writing task in {language.name}.
 Return the Exam object only.
 """
 
 
-def writing_grade_prompt(level: str, prompt: str, criteria: list[str]) -> str:
-    return f"""You are grading a {level} writing task from a high-school student.
+def writing_grade_prompt(
+    language: Language,
+    level: str,
+    prompt: str,
+    criteria: list[str],
+) -> str:
+    return f"""You are grading a {level} {language.name} writing task from a high-school student.
 
 Task: {prompt}
 Criteria: {", ".join(criteria) or "task response, accuracy, range, organisation"}
 
 Score 0..1 using the criteria. 0.7 means "meets {level} standard". Be fair but do not \
 reward effort over accuracy. List 1-3 concrete strengths and 1-3 concrete weaknesses, \
-quoting the student's own wording where possible.
+quoting the student's own wording where possible. Write the feedback in {language.name}.
 """
 
 
 def decision_prompt() -> str:
     return """Decide whether the student accepted the offer to take the final exam now.
 
-Accepted: yes, ok, sure, let's do it, I'm ready, why not, go ahead, take the test.
-Declined: no, not yet, later, I want more practice, I'm scared, maybe next time.
+Accepted: yes, ok, sure, let's do it, I'm ready, why not, go ahead, take the test,
+oui, d'accord, vas-y, je suis prêt, pourquoi pas, allons-y.
+Declined: no, not yet, later, I want more practice, I'm scared, maybe next time,
+non, pas encore, plus tard, je veux réviser, j'ai peur, la prochaine fois.
 If the message is ambiguous or asks a question instead of answering, treat it as a \
 decline and say so in the note."""
 
 
-def remediation_prompt(level: str, failed: list[FailedPoint], topic: Topic) -> str:
+def remediation_prompt(
+    language: Language,
+    level: str,
+    failed: list[FailedPoint],
+    topic: Topic,
+) -> str:
     points = "\n".join(f"- [{p.skill}] {p.point} {p.advice}".strip() for p in failed)
-    return f"""{tutor_persona(level)}
+    return f"""{tutor_persona(level, language)}
 
 The student just failed the {level} exam. These are the exact failure points:
 {points}
@@ -184,14 +228,14 @@ Build a short remediation plan that returns to the topic '{topic["title"]}'
 rewrite a sentence, classify examples, answer three quick questions.
 
 The message must: name the result honestly, say it is normal, and start the first \
-activity immediately. Do not be vague. Maximum 120 words.
+activity immediately. Do not be vague. Maximum 120 words. Write it in {language.name}.
 """
 
 
-def results_prompt(level: str, result: ExamResult) -> str:
+def results_prompt(language: Language, level: str, result: ExamResult) -> str:
     lines = "\n".join(f"- {s}: {v:.0%}" for s, v in result.per_skill.items())
     fails = "\n".join(f"- [{p.skill}] {p.point}" for p in result.failed_points) or "- none"
-    return f"""{tutor_persona(level)}
+    return f"""{tutor_persona(level, language)}
 
 Final {level} exam result: {result.score:.0%}. {"PASSED" if result.passed else "NOT PASSED"}.
 Per section:
@@ -199,7 +243,8 @@ Per section:
 Failure points:
 {fails}
 
-Tell the student the result in two or three sentences with the numbers, then either \
-congratulate them briefly (promotion is handled by the system, do not announce the next \
-level yourself) or say what you will review together. Do not invent extra results.
+Tell the student the result in two or three sentences with the numbers, in \
+{language.name}, then either congratulate them briefly (promotion is handled by the \
+system, do not announce the next level yourself) or say what you will review together. \
+Do not invent extra results.
 """

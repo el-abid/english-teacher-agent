@@ -215,6 +215,48 @@ def test_full_journey_from_placement_to_promotion():
     assert "B2" in _prompt(state)
 
 
+def test_french_journey_uses_the_french_syllabus_and_promotes():
+    llm = scripted_llm()
+    graph = compile_graph()
+    config = {"configurable": {"thread_id": "fr1", "llm": llm}}
+
+    state = graph.invoke(initial_state("Amelie", "B1", "vivre à Paris", "fr"), config)
+
+    assert state["language"] == "fr"
+    assert state["plan"][0]["id"] == "FR-B1-1"
+    assert _kind(state) == "placement"
+    assert "Bonjour, Amelie ! Je suis Mme Laurent." in _prompt(state)
+    assert "FR-B1-1" not in _prompt(state)
+
+    state = graph.invoke(Command(resume="1B 2A 3A"), config)
+    assert _kind(state) == "teaching"
+    teaching_system = str(llm.text_calls[-1][0].content)
+    assert "Récits et imparfait" in teaching_system
+    assert "Mme Laurent" in teaching_system
+    assert "Speak French only" in teaching_system
+
+    for answer in ["Hier, je lisais quand le téléphone a sonné.", "J'avais déjà mangé.", "Nous sommes partis."]:
+        state = graph.invoke(Command(resume=answer), config)
+
+    assert _kind(state) == "exam_offer"
+    state = graph.invoke(Command(resume="Oui, allons-y."), config)
+    assert _kind(state) == "exam"
+    exam_system = str(llm.structured_calls[-1][1][0].content)
+    assert "French" in exam_system
+    assert "Récits et imparfait" in exam_system
+
+    state = graph.invoke(
+        Command(
+            resume="ANSWERS: 1C 2B 3B 4C\nWRITING: L'été dernier, ma famille a voyagé au bord de la mer."
+        ),
+        config,
+    )
+    assert state["exam_result"].passed is True
+    assert state["level"] == "B2"
+    assert state["plan"][0]["id"].startswith("FR-B2")
+    assert _kind(state) == "teaching"
+
+
 def test_failed_exam_leads_to_remediation_not_promotion():
     llm = scripted_llm()
     llm.texts.append("Let's rebuild the third conditional together.")

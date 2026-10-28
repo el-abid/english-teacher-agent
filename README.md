@@ -1,12 +1,24 @@
-# English Teacher Agent (LangGraph)
+# Language Teacher Agent (LangGraph)
 
-A CEFR English tutor for high-school students. The student picks a starting level
-(A1 to C2), works through short lessons, and gets promoted only after passing the
-level exam. A failed exam sends them into a targeted review of the exact points
-that failed, then they retake it.
+A CEFR tutor for high-school students in English or French. The student picks the
+teacher's language and a starting level (A1 to C2), works through short lessons, and
+gets promoted only after passing the level exam. A failed exam sends them into a
+targeted review of the exact points that failed, then they retake it.
 
 Two front ends share the same graph: a terminal chat and a web UI with a chat
 panel and live skill bars.
+
+## Languages and teachers
+
+| Code | Language | Teacher | Avatar | Level labels |
+| --- | --- | --- | --- | --- |
+| `en` | English | Ms. Rivera | MR | Beginner … Proficient |
+| `fr` | Français | Mme Laurent | ML | Débutant … Maîtrise |
+
+The teacher persona, greetings, lesson content, feedback, exam and remediation are
+written in the target language. The interface chrome (buttons, dashboard, status
+labels) stays in English. Aliases such as `french`, `français`, `eng` and `anglais`
+are accepted by the API and the CLI.
 
 ## Run it
 
@@ -17,10 +29,12 @@ copy .env.example .env      # then put your GOOGLE_API_KEY in .env
 uv run english-teacher-web  # http://127.0.0.1:8000
 ```
 
+Open the page and pick **English** or **Français** on the start screen.
+
 Terminal instead of the browser:
 
 ```powershell
-uv run python -m english_teacher.cli --level B1 --name Yassine
+uv run python -m english_teacher.cli --language fr --level B1 --name Amelie
 ```
 
 The web server keeps each browser session in `sessions.sqlite`, so a page reload
@@ -34,7 +48,8 @@ uv run pytest -q
 
 ## What the student experiences
 
-1. They pick a starting level on the start screen (or answer "B1" in the terminal).
+1. They pick a language and a starting level on the start screen (or pass
+   `--language fr --level B1` in the terminal).
 2. Three placement questions seed their skill profile.
 3. Lessons arrive one task at a time. Each answer is graded and folded into four
    skill scores: grammar, vocabulary, reading, writing.
@@ -93,9 +108,10 @@ The web API reads that checkpoint to redraw the transcript after a reload.
 | --- | --- |
 | `GET /` | the web UI |
 | `GET /api/health` | status plus the model in use |
-| `GET /api/levels` | A1 to C2 with labels |
-| `POST /api/sessions` | start a session: `{name, level, goal}` |
-| `GET /api/sessions/{id}` | snapshot: reply, transcript, mastery, exam result |
+| `GET /api/languages` | teachers, native names and initials |
+| `GET /api/levels` | A1 to C2 with labels (`?language=fr` for French labels) |
+| `POST /api/sessions` | start a session: `{name, level, goal, language}` |
+| `GET /api/sessions/{id}` | snapshot: reply, transcript, language, teacher, mastery, exam result |
 | `POST /api/sessions/{id}/messages` | resume the pause with `{message}` |
 | `GET /api/dashboard` | local totals and recent events as JSON |
 | `GET /dashboard` | the logs and tokens page |
@@ -217,9 +233,11 @@ either way. Restart the server after editing `.env`; `GET /api/health` reports
 | --- | --- |
 | `src/english_teacher/graph.py` | nodes, edges, conditional routing, checkpointer |
 | `src/english_teacher/state.py` | `TeacherState` shared by every node |
-| `src/english_teacher/cefr.py` | levels, skills, 30-topic syllabus |
+| `src/english_teacher/cefr.py` | levels, skills, 30-topic English syllabus |
+| `src/english_teacher/syllabus_fr.py` | 30-topic French syllabus |
+| `src/english_teacher/languages.py` | `Language` registry, teachers, aliases, localised copy |
 | `src/english_teacher/policy.py` | mastery maths, readiness gate, exam scoring |
-| `src/english_teacher/prompts.py` | teacher persona and every prompt |
+| `src/english_teacher/prompts.py` | teacher persona and every prompt, parameterised by language |
 | `src/english_teacher/nodes/intake.py` | level choice, placement quiz and grading |
 | `src/english_teacher/nodes/teaching.py` | lesson turn, assessment, readiness check |
 | `src/english_teacher/nodes/exam_flow.py` | exam offer, generation, grading, promotion, remediation |
@@ -231,7 +249,7 @@ either way. Restart the server after editing `.env`; `GET /api/health` reports
 | `src/english_teacher/web/` | HTML, CSS and vanilla JS for the tutor and dashboard |
 | `scripts/langfuse_check.py` | send a test span, list traces with URLs |
 | `scripts/alert_check.py` | report alert config, optionally send a test mail |
-| `tests/` | 62 tests: policy rules, prompt plumbing, tracing, API, observability, alerts |
+| `tests/` | 74 tests: policy rules, prompt plumbing, languages, tracing, API, observability, alerts |
 
 ## Tuning
 
@@ -264,8 +282,19 @@ either way. Restart the server after editing `.env`; `GET /api/health` reports
 | `ALERT_EMAIL_FROM` | `MAIL_DEFAULT_SENDER` | sender address |
 | `ALERT_SMTP_TLS` | `MAIL_USE_TLS` | `starttls`, `ssl` or `none` |
 
-Adding a topic means adding one dict to `SYLLABUS` in `cefr.py`. No prompt needs
-to change.
+Adding a topic means adding one dict to `SYLLABUS` in `cefr.py` (English) or
+`FRENCH_SYLLABUS` in `syllabus_fr.py` (French). No prompt needs to change.
+
+## Adding a language
+
+1. Add a syllabus module with 30 `Topic` dicts, five per CEFR level.
+2. Add one `Language` entry in `languages.py`: teacher name, initials, localised
+   level labels, greeting, fallback lines and rendering chrome.
+3. Register its code and aliases in `LANGUAGES` and `_ALIASES`.
+4. Add its code to `language_catalogue()` and to the web picker fallback list.
+
+The graph, policy and exam scoring are language-agnostic; they read the chosen
+level, topic and target language from state.
 
 ## Extending
 

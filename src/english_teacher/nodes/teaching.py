@@ -5,7 +5,6 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 
-from ..cefr import topics_for
 from ..config import load_settings
 from ..context import (
     mastery_line,
@@ -14,6 +13,7 @@ from ..context import (
     weakest_skills,
     with_user_turn,
 )
+from ..languages import get_language
 from ..llm import resolve_llm
 from ..policy import apply_observed, evaluate_readiness, new_mastery
 from ..prompts import assessment_prompt, readiness_prompt, teaching_prompt
@@ -26,7 +26,8 @@ def _topic(state: TeacherState) -> dict:
     topic = state.get("current_topic")
     if topic:
         return topic
-    plan = state.get("plan") or topics_for(state.get("level", "B1"))
+    language = get_language(state.get("language"))
+    plan = state.get("plan") or language.topics(state.get("level", "B1"))
     return plan[0]
 
 
@@ -37,11 +38,13 @@ def teacher_turn(state: TeacherState, config: RunnableConfig) -> dict:
     """Produce the next teaching message: one explanation plus one task."""
     settings = load_settings()
     llm = resolve_llm(config)
+    language = get_language(state.get("language"))
     level = state.get("level", "B1")
     topic = _topic(state)
     mastery = state.get("mastery") or new_mastery()
 
     system = teaching_prompt(
+        language=language,
         level=level,
         topic=topic,
         mastery_line=mastery_line(mastery),
@@ -54,7 +57,7 @@ def teacher_turn(state: TeacherState, config: RunnableConfig) -> dict:
     history = recent_messages(state, settings.max_context_messages)
     message = _text(llm.invoke(with_user_turn(system, history, "Teach the next small step now.")))
     if not message:
-        message = f"Let's work on {topic['title']}. Tell me what you already know about it."
+        message = language.teach_fallback.format(topic=topic["title"])
 
     return {
         "teacher_message": message,
@@ -67,10 +70,11 @@ def assess_answer(state: TeacherState, config: RunnableConfig) -> dict:
     """Grade the student's last answer and fold it into the mastery model."""
     settings = load_settings()
     llm = resolve_llm(config)
+    language = get_language(state.get("language"))
     level = state.get("level", "B1")
     topic = _topic(state)
 
-    system = assessment_prompt(level, topic)
+    system = assessment_prompt(language, level, topic)
     history = recent_messages(state, settings.max_context_messages)
     assessment = llm.with_structured_output(Assessment).invoke(
         with_user_turn(system, history, "Grade my last answer now.")
@@ -104,6 +108,7 @@ def check_readiness(state: TeacherState, config: RunnableConfig) -> dict:
     its own.
     """
     settings = load_settings()
+    language = get_language(state.get("language"))
     level = state.get("level", "B1")
     mastery = state.get("mastery") or new_mastery()
     lessons = int(state.get("lessons_completed", 0))
@@ -123,6 +128,7 @@ def check_readiness(state: TeacherState, config: RunnableConfig) -> dict:
     opinion = llm.with_structured_output(ReadinessOpinion).invoke(
         with_user_turn(
             readiness_prompt(
+                language,
                 level,
                 mastery_line(mastery),
                 lessons,
@@ -147,7 +153,8 @@ def check_readiness(state: TeacherState, config: RunnableConfig) -> dict:
 def advance_topic(state: TeacherState, config: RunnableConfig) -> dict:
     """Move to the next unseen topic, or recycle the syllabus for review."""
     level = state.get("level", "B1")
-    plan = state.get("plan") or topics_for(level)
+    language = get_language(state.get("language"))
+    plan = state.get("plan") or language.topics(level)
     seen = list(state.get("topics_seen") or [])
     remaining = [topic for topic in plan if topic["id"] not in seen]
 

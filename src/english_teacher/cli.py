@@ -12,6 +12,7 @@ from langgraph.types import Command
 from .cefr import LEVELS
 from .config import load_env_file, load_settings
 from .graph import compile_graph, initial_state, make_checkpointer
+from .languages import LANGUAGES, get_language, normalise_language
 from .tracing import flush, trace_config
 
 
@@ -31,20 +32,22 @@ def chat(
     goal: str = "",
     thread: str | None = None,
     model: str | None = None,
+    language: str = "en",
 ) -> int:
     if model:
         os.environ["ENGLISH_TEACHER_MODEL"] = model
     settings = load_settings()
+    chosen = get_language(language)
     graph = compile_graph(make_checkpointer(settings.db_path))
     thread_id = thread or f"student-{uuid.uuid4().hex[:8]}"
     config = {"configurable": {"thread_id": thread_id}}
-    config.update(trace_config(thread_id, user_id=name, tags=("cli", level or "auto")))
+    config.update(trace_config(thread_id, user_id=name, tags=("cli", level or "auto", chosen.code)))
 
-    print(f"English teacher agent · model={settings.model} · thread={thread_id}")
+    print(f"{chosen.name} teacher agent · {chosen.teacher} · model={settings.model} · thread={thread_id}")
     print("Type 'quit' to stop. The graph checkpoints every turn.\n")
 
     try:
-        state = graph.invoke(initial_state(name, level, goal), config)
+        state = graph.invoke(initial_state(name, level, goal, chosen.code), config)
     except Exception as exc:  # noqa: BLE001 - surface provider/auth errors to the student
         print(f"Could not start the session: {exc}", file=sys.stderr)
         print(
@@ -58,7 +61,7 @@ def chat(
         if prompt is None:
             break
 
-        print(f"\nMs. Rivera:\n{prompt}\n")
+        print(f"\n{chosen.teacher}:\n{prompt}\n")
         try:
             reply = input("You: ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -85,23 +88,36 @@ def chat(
 
     final = state.get("teacher_message")
     if final and state.get("graduated"):
-        print(f"\nMs. Rivera:\n{final}")
+        print(f"\n{chosen.teacher}:\n{final}")
     print(f"\nSession ended (level {state.get('level')}, phase {state.get('phase')}).")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="CEFR English teacher agent")
+    parser = argparse.ArgumentParser(description="CEFR language teacher agent")
     parser.add_argument("--level", choices=LEVELS, default="", help="starting CEFR level")
     parser.add_argument("--name", default="", help="student name")
-    parser.add_argument("--goal", default="", help="why the student is learning English")
+    parser.add_argument("--goal", default="", help="why the student is learning")
+    parser.add_argument(
+        "--language",
+        choices=sorted(LANGUAGES),
+        default="en",
+        help="language to learn: en (English) or fr (French)",
+    )
     parser.add_argument("--thread", default=None, help="resume an existing session id")
     parser.add_argument("--model", default=None, help="override ENGLISH_TEACHER_MODEL")
     args = parser.parse_args(argv)
 
     load_env_file()
     try:
-        return chat(args.level, args.name, args.goal, args.thread, args.model)
+        return chat(
+            args.level,
+            args.name,
+            args.goal,
+            args.thread,
+            args.model,
+            normalise_language(args.language) or "en",
+        )
     finally:
         flush()
 

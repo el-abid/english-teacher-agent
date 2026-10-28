@@ -3,17 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ms. Rivera · English tutor</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <title>Language tutor</title>
+    <link rel="stylesheet" href="/static/styles.css?v=2" />
   </head>
   <body>
     <div class="shell">
       <aside class="side">
         <div class="brand">
-          <div class="avatar" aria-hidden="true">MR</div>
+          <div class="avatar" id="teacherAvatar" aria-hidden="true">LT</div>
           <div>
-            <h1>Ms. Rivera</h1>
-            <p class="muted small">English tutor · CEFR A1 to C2</p>
+            <h1 id="teacherName">Your tutor</h1>
+            <p class="muted small" id="teacherSubtitle">CEFR A1 to C2</p>
           </div>
         </div>
 
@@ -46,8 +46,13 @@
           <form id="startForm" class="start">
             <h2>Start where you are.</h2>
             <p class="muted">
-              Pick your level. Ms. Rivera runs a three-question check, then teaches to it.
+              Pick your language and level. Your tutor runs a three-question check,
+              then teaches to it.
             </p>
+
+            <fieldset class="languages" id="languagePicker">
+              <legend>Language</legend>
+            </fieldset>
 
             <div class="fields">
               <label>
@@ -81,6 +86,6 @@
       </main>
     </div>
 
-    <script src="/static/app.js" defer></script>
+    <script src="/static/app.js?v=2" defer></script>
   </body>
 </html>
