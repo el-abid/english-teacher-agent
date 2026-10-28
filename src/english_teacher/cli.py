@@ -9,8 +9,10 @@ import uuid
 
 from langgraph.types import Command
 
+from . import __version__
 from .cefr import LEVELS
 from .config import load_env_file, load_settings
+from .governance import KillSwitch, kill_switch_path
 from .graph import compile_graph, initial_state, make_checkpointer
 from .languages import LANGUAGES, get_language, normalise_language
 from .tracing import flush, trace_config
@@ -38,12 +40,24 @@ def chat(
         os.environ["ENGLISH_TEACHER_MODEL"] = model
     settings = load_settings()
     chosen = get_language(language)
+    switcher = KillSwitch(kill_switch_path(settings.db_path))
+    stopped = switcher.status()
+    if stopped["active"]:
+        print(
+            f"Kill switch active: {stopped['reason'] or 'no reason given'}. "
+            "Clear it before starting a session.",
+            file=sys.stderr,
+        )
+        return 2
     graph = compile_graph(make_checkpointer(settings.db_path))
     thread_id = thread or f"student-{uuid.uuid4().hex[:8]}"
     config = {"configurable": {"thread_id": thread_id}}
     config.update(trace_config(thread_id, user_id=name, tags=("cli", level or "auto", chosen.code)))
 
-    print(f"{chosen.name} teacher agent · {chosen.teacher} · model={settings.model} · thread={thread_id}")
+    print(
+        f"{chosen.name} teacher agent v{__version__} · {chosen.teacher} · "
+        f"model={settings.model} · thread={thread_id}"
+    )
     print("Type 'quit' to stop. The graph checkpoints every turn.\n")
 
     try:
@@ -57,6 +71,15 @@ def chat(
         return 1
 
     while True:
+        stopped = switcher.status()
+        if stopped["active"]:
+            print(
+                f"\nKill switch active: {stopped['reason'] or 'no reason given'}. "
+                "The session is paused.",
+                file=sys.stderr,
+            )
+            return 2
+
         prompt = _interrupt_prompt(state)
         if prompt is None:
             break

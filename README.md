@@ -6,7 +6,9 @@ gets promoted only after passing the level exam. A failed exam sends them into a
 targeted review of the exact points that failed, then they retake it.
 
 Two front ends share the same graph: a terminal chat and a web UI with a chat
-panel and live skill bars.
+panel and live skill bars. The runtime also carries its operational identity: an
+Agent Card, SemVer releases, a kill switch, an incident runbook and a container
+deployment.
 
 ## Languages and teachers
 
@@ -45,6 +47,47 @@ Tests need no API key, they run the graph with a scripted model:
 ```powershell
 uv run pytest -q
 ```
+
+## Governance
+
+The runtime is treated as a deployed agent, not an anonymous script.
+
+| Control | Where |
+| --- | --- |
+| Agent Card | `/governance`, `/api/agent-card`, `/.well-known/agent-card.json` |
+| Ownership and limits | `src/english_teacher/agent_card.json` |
+| SemVer | `pyproject.toml`, `__init__.py`, Agent Card, `CHANGELOG.md` |
+| Kill switch | `kill-switch.json`, `english-teacher-governance` |
+| Admin API | `POST /api/admin/kill-switch` with `X-Admin-Token` |
+| Incident procedure | `docs/RUNBOOK.md` |
+| Deployment | `Dockerfile`, `docker-compose.yml`, `docs/DEPLOYMENT.md` |
+
+Open <http://127.0.0.1:8000/governance> to see the live card: owners,
+responsibilities, resources, scope limits, data handling, security and versioning.
+
+The switch blocks new sessions and new turns with `503` while leaving reads and
+logs available. Set a random admin token before enabling the HTTP control:
+
+```powershell
+$env:ENGLISH_TEACHER_ADMIN_TOKEN="change-me"
+uv run english-teacher-governance on --reason "wrong correction" --actor "on-call"
+uv run english-teacher-governance status
+uv run english-teacher-governance off --reason "fix verified" --actor "on-call"
+```
+
+`ENGLISH_TEACHER_KILL_SWITCH=1` is a break-glass override: no API call or CLI
+command can clear it, only unsetting it and restarting. Full procedure in
+[docs/RUNBOOK.md](docs/RUNBOOK.md).
+
+Container:
+
+```powershell
+docker compose up -d --build
+```
+
+The image runs as a non-root user, stores SQLite and the switch in a `/data`
+volume, and health-checks `/api/health`. Cloud notes for Azure Container Apps,
+Render and Railway are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## What the student experiences
 
@@ -107,14 +150,19 @@ The web API reads that checkpoint to redraw the transcript after a reload.
 | Route | Purpose |
 | --- | --- |
 | `GET /` | the web UI |
-| `GET /api/health` | status plus the model in use |
+| `GET /api/health` | status, version, model and kill switch state |
+| `GET /api/governance` | version, suspension state, admin availability |
+| `GET /api/agent-card` | the full Agent Card |
+| `GET /.well-known/agent-card.json` | the same card at the well-known path |
+| `POST /api/admin/kill-switch` | suspend or resume, requires `X-Admin-Token` |
 | `GET /api/languages` | teachers, native names and initials |
 | `GET /api/levels` | A1 to C2 with labels (`?language=fr` for French labels) |
 | `POST /api/sessions` | start a session: `{name, level, goal, language}` |
 | `GET /api/sessions/{id}` | snapshot: reply, transcript, language, teacher, mastery, exam result |
 | `POST /api/sessions/{id}/messages` | resume the pause with `{message}` |
-| `GET /api/dashboard` | local totals and recent events as JSON |
+| `GET /api/dashboard` | local totals, governance state and recent events as JSON |
 | `GET /dashboard` | the logs and tokens page |
+| `GET /governance` | the Agent Card page |
 
 Interactive docs at `/api/docs`.
 
@@ -163,6 +211,7 @@ One row per turn, per model call, and per error:
 | `llm` | a model call ends | tokens in/out, model, latency, cost |
 | `error` | a turn or model call fails | exception text, latency |
 | `alert` | an alert is triggered | what was sent |
+| `governance` | the kill switch changes | actor, reason, new state |
 
 The top cards show today's turns, model calls, tokens, estimated cost, errors and
 how much of the daily budget is used. The table filters by kind and refreshes
@@ -233,6 +282,9 @@ either way. Restart the server after editing `.env`; `GET /api/health` reports
 | --- | --- |
 | `src/english_teacher/graph.py` | nodes, edges, conditional routing, checkpointer |
 | `src/english_teacher/state.py` | `TeacherState` shared by every node |
+| `src/english_teacher/agent_card.json` | static Agent Card: owners, scope, resources, limits |
+| `src/english_teacher/agent_card.py` | loads the card and injects live version and switch state |
+| `src/english_teacher/governance.py` | SemVer state, kill switch, operator CLI |
 | `src/english_teacher/cefr.py` | levels, skills, 30-topic English syllabus |
 | `src/english_teacher/syllabus_fr.py` | 30-topic French syllabus |
 | `src/english_teacher/languages.py` | `Language` registry, teachers, aliases, localised copy |
@@ -246,10 +298,14 @@ either way. Restart the server after editing `.env`; `GET /api/health` reports
 | `src/english_teacher/tracing.py` | Langfuse wiring: session/user metadata, safe no-op |
 | `src/english_teacher/observability.py` | local event store, token meter, cost estimate |
 | `src/english_teacher/alerts.py` | SMTP alerts with once-a-day and cooldown rules |
-| `src/english_teacher/web/` | HTML, CSS and vanilla JS for the tutor and dashboard |
+| `src/english_teacher/web/` | HTML, CSS and vanilla JS for the tutor, dashboard and Agent Card |
+| `Dockerfile`, `docker-compose.yml` | non-root container, health check, persistent `/data` volume |
+| `docs/GOVERNANCE.md` | ownership, SemVer policy, switch contract, security boundaries |
+| `docs/RUNBOOK.md` | detection, containment, remediation, recovery and incident template |
+| `docs/DEPLOYMENT.md` | Docker, Compose, Azure Container Apps, Render, Railway, secrets |
 | `scripts/langfuse_check.py` | send a test span, list traces with URLs |
 | `scripts/alert_check.py` | report alert config, optionally send a test mail |
-| `tests/` | 74 tests: policy rules, prompt plumbing, languages, tracing, API, observability, alerts |
+| `tests/` | 98 tests: policy, prompts, languages, tracing, API, observability, alerts, governance |
 
 ## Tuning
 
@@ -274,6 +330,9 @@ either way. Restart the server after editing `.env`; `GET /api/health` reports
 | `ENGLISH_TEACHER_PRICE_OUTPUT_PER_M` | `0.40` | USD per million output tokens |
 | `ENGLISH_TEACHER_LOG_PROMPTS` | `0` | store prompt text in the local log |
 | `ENGLISH_TEACHER_DAILY_TOKEN_BUDGET` | `0` | daily token budget, `0` disables |
+| `ENGLISH_TEACHER_ADMIN_TOKEN` | unset | enables `POST /api/admin/kill-switch` |
+| `ENGLISH_TEACHER_KILL_SWITCH_FILE` | next to sessions DB | switch state file |
+| `ENGLISH_TEACHER_KILL_SWITCH` | unset | `1` suspends traffic until unset and restarted |
 | `ALERT_EMAIL_TO` | `MAIL_DEFAULT_SENDER` | alert recipient |
 | `ALERT_SMTP_HOST` | `MAIL_SERVER` | SMTP server, enables email |
 | `ALERT_SMTP_PORT` | `MAIL_PORT`, else `587` | SMTP port |
@@ -305,8 +364,8 @@ level, topic and target language from state.
   stream_mode="updates")` and push tokens to the page with SSE.
 - **Human teacher review:** before `advance_level`, add an approval interrupt.
   The exam result is already a structured object in state.
-- **Authentication:** sessions are keyed by an unguessable thread id, but there is
-  no login and no student database yet.
+- **Authentication:** the admin API has a token; the student UI still has no login.
+  Put it behind SSO or a private network before real student use.
 
 ## Limits to know about
 

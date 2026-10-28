@@ -11,3 +11,7 @@ dist/
 *.sqlite
 *.sqlite3
 *.sqlite-*
+kill-switch.json
+data/
+reports/
+*.pdf

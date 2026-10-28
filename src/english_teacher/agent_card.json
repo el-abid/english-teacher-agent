@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0",
+  "id": "el-abid/english-teacher-agent",
+  "name": "Language Teacher Agent",
+  "version": "0.2.0",
+  "description": "CEFR A1-C2 tutor for English and French. It places a student, teaches short lessons, assesses four skills, runs a level exam and promotes only on a pass.",
+  "status": "active",
+  "owners": {
+    "business": {
+      "role": "Product owner, education",
+      "name": "El Abid",
+      "contact": "https://github.com/el-abid"
+    },
+    "technical": {
+      "role": "Technical owner and maintainer",
+      "name": "El Abid",
+      "contact": "https://github.com/el-abid"
+    }
+  },
+  "responsibilities": [
+    "Run a three-question placement check for the chosen language and level.",
+    "Teach the static CEFR syllabus one task at a time, in the target language.",
+    "Score grammar, vocabulary, reading and writing after each student answer.",
+    "Offer the level exam only when the readiness gate passes, and wait for consent.",
+    "Grade the exam in Python for objective items and with a rubric for writing.",
+    "Promote exactly one level on a pass; remediate the failed points on a fail."
+  ],
+  "capabilities": [
+    "placement",
+    "teaching",
+    "formative assessment",
+    "level exam",
+    "promotion",
+    "targeted remediation"
+  ],
+  "languages": [
+    { "code": "en", "name": "English", "teacher": "Ms. Rivera" },
+    { "code": "fr", "name": "French", "teacher": "Mme Laurent" }
+  ],
+  "model": {
+    "provider": "google_genai",
+    "name": "gemini-3.1-flash-lite",
+    "configuration": "ENGLISH_TEACHER_MODEL",
+    "secret": "GOOGLE_API_KEY",
+    "note": "The model is a language surface only. Python owns scoring, readiness and promotion."
+  },
+  "resources": [
+    {
+      "name": "Google Gemini API",
+      "type": "external API",
+      "purpose": "Placement questions, lesson text, writing grades and exam generation."
+    },
+    {
+      "name": "sessions.sqlite",
+      "type": "local database",
+      "purpose": "LangGraph checkpoints for every student thread."
+    },
+    {
+      "name": "events.sqlite",
+      "type": "local database",
+      "purpose": "Turns, model calls, tokens, cost, errors and governance events."
+    },
+    {
+      "name": "Langfuse",
+      "type": "optional external tracing",
+      "purpose": "Shared trace view when LANGFUSE_* keys are configured."
+    },
+    {
+      "name": "SMTP",
+      "type": "optional external alerting",
+      "purpose": "Budget and error emails when ALERT_* or MAIL_* settings exist."
+    },
+    {
+      "name": "kill-switch.json",
+      "type": "local state file",
+      "purpose": "Persistent suspension state read by the API and CLI."
+    }
+  ],
+  "limits": {
+    "in_scope": [
+      "English and French, CEFR A1 to C2.",
+      "Grammar, vocabulary, reading and writing.",
+      "One student per browser session or terminal thread."
+    ],
+    "out_of_scope": [
+      "Listening and speaking assessment: no audio capture, playback or pronunciation scoring.",
+      "Automatic promotion without a passed exam.",
+      "Model-driven level, score or policy changes.",
+      "Multi-tenant billing, classroom rosters or teacher administration.",
+      "Horizontal scaling on a shared SQLite file."
+    ],
+    "guardrails": [
+      "The readiness gate and exam pass mark are Python policy, not model judgement.",
+      "A failed exam creates remediation for the exact failed points before a retake.",
+      "Student text is excluded from local logs unless ENGLISH_TEACHER_LOG_PROMPTS=1.",
+      "The kill switch blocks new sessions and new turns without deleting existing data."
+    ]
+  },
+  "data_handling": {
+    "student_data": "Names, goals and messages live in the local session checkpoint. The events database stores labels, tokens, latency and cost, not message bodies by default.",
+    "prompts": "Prompt logging is opt-in through ENGLISH_TEACHER_LOG_PROMPTS and off by default.",
+    "retention": "SQLite files stay on the mounted data volume until the operator removes or archives them.",
+    "secrets": "Provider keys, admin tokens and SMTP passwords exist only in environment variables. They are never placed in prompts, logs, the Agent Card or API responses."
+  },
+  "endpoints": {
+    "ui": "/",
+    "dashboard": "/dashboard",
+    "governance_page": "/governance",
+    "agent_card": "/api/agent-card",
+    "agent_card_well_known": "/.well-known/agent-card.json",
+    "health": "/api/health",
+    "governance_status": "/api/governance",
+    "kill_switch": "/api/admin/kill-switch"
+  },
+  "versioning": {
+    "scheme": "SemVer",
+    "tag_pattern": "vMAJOR.MINOR.PATCH",
+    "major": "Breaking change to the graph contract, API shape or stored state.",
+    "minor": "New capability, language, endpoint or tool that stays backward compatible.",
+    "patch": "Bug fix, prompt tuning, performance or configuration adjustment.",
+    "changelog": "CHANGELOG.md"
+  },
+  "security": {
+    "transport": "HTTPS is terminated by the reverse proxy or cloud platform. The app itself listens on plain HTTP inside the container.",
+    "admin_auth": "POST /api/admin/kill-switch requires X-Admin-Token matching ENGLISH_TEACHER_ADMIN_TOKEN.",
+    "secrets": "Environment variables only. Never prompts, logs, the Agent Card or API responses.",
+    "least_privilege": "Use a dedicated Gemini key and a dedicated admin token; do not reuse personal credentials.",
+    "student_auth": "The demo web UI is unauthenticated. Put it behind SSO, a VPN or a private network before real student use.",
+    "headers": "The app sets nosniff, DENY framing, no-referrer and a restrictive permissions policy."
+  },
+  "runbook": "docs/RUNBOOK.md",
+  "changelog": "CHANGELOG.md"
+}

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Card · Language tutor</title>
+    <link rel="stylesheet" href="/static/styles.css?v=3" />
+  </head>
+  <body>
+    <div class="dash" id="agentCard">
+      <header class="dash-head">
+        <div class="brand">
+          <div class="avatar" id="cardAvatar" aria-hidden="true">LT</div>
+          <div>
+            <h1 id="cardName">Agent Card</h1>
+            <p class="muted small" id="cardSummary">Loading the agent identity…</p>
+          </div>
+        </div>
+        <div class="dash-actions">
+          <span class="chip" id="cardStatus">loading</span>
+          <span class="chip ghost" id="cardVersion">v…</span>
+          <a class="ghost-btn" href="/dashboard">Logs &amp; tokens</a>
+          <a class="ghost-btn" href="/">← Tutor</a>
+        </div>
+      </header>
+
+      <section class="dash-banner" id="cardBanner" hidden></section>
+      <section class="cards" id="cardFacts"></section>
+
+      <section class="dash-panel gov-section">
+        <h2>Ownership</h2>
+        <p class="muted small">Who answers for the product and who maintains the runtime.</p>
+        <div class="gov-grid" id="owners"></div>
+      </section>
+
+      <section class="dash-panel gov-section">
+        <h2>Responsibilities</h2>
+        <ul id="responsibilities"></ul>
+      </section>
+
+      <section class="dash-panel gov-section">
+        <h2>Scope and limits</h2>
+        <div class="gov-grid">
+          <div>
+            <h3>In scope</h3>
+            <ul id="limitsIn"></ul>
+          </div>
+          <div>
+            <h3>Out of scope</h3>
+            <ul id="limitsOut"></ul>
+          </div>
+          <div>
+            <h3>Guardrails</h3>
+            <ul id="guardrails"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="dash-panel gov-section">
+        <h2>Resources</h2>
+        <div class="table-wrap">
+          <table class="events">
+            <thead>
+              <tr><th>Name</th><th>Type</th><th>Purpose</th></tr>
+            </thead>
+            <tbody id="resources"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="dash-panel gov-section">
+        <h2>Data handling and security</h2>
+        <div class="gov-grid">
+          <div><h3>Student data</h3><p id="dataStudent"></p></div>
+          <div><h3>Logging</h3><p id="dataLogging"></p></div>
+          <div><h3>Secrets</h3><p id="dataSecrets"></p></div>
+          <div><h3>Transport</h3><p id="secTransport"></p></div>
+          <div><h3>Admin access</h3><p id="secAdmin"></p></div>
+          <div><h3>Student access</h3><p id="secStudent"></p></div>
+        </div>
+      </section>
+
+      <section class="dash-panel gov-section">
+        <h2>Versioning</h2>
+        <div class="gov-grid">
+          <div><h3>Scheme</h3><p id="verScheme"></p></div>
+          <div><h3>Major</h3><p id="verMajor"></p></div>
+          <div><h3>Minor</h3><p id="verMinor"></p></div>
+          <div><h3>Patch</h3><p id="verPatch"></p></div>
+        </div>
+      </section>
+
+      <section class="dash-panel gov-section">
+        <h2>Endpoints</h2>
+        <div class="table-wrap">
+          <table class="events">
+            <thead>
+              <tr><th>Name</th><th>Path</th></tr>
+            </thead>
+            <tbody id="endpoints"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <p class="footnote">
+        The machine-readable card is also served at
+        <a href="/.well-known/agent-card.json">/.well-known/agent-card.json</a>.
+        Incident procedure: <a id="runbookLink" href="#">docs/RUNBOOK.md</a>.
+        Changes: <a id="changelogLink" href="#">CHANGELOG.md</a>.
+      </p>
+    </div>
+
+    <script src="/static/governance.js?v=1" defer></script>
+  </body>
+</html>

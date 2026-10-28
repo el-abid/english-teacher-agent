@@ -72,9 +72,19 @@ function renderCards(data) {
   byId("alertsChip").textContent = a.email_configured
     ? `alerts: ${a.recipient}`
     : "alerts: email off";
+  byId("versionChip").textContent = `v${data.version || "?"}`;
+
+  const kill = data.kill_switch || {};
+  byId("killChip").textContent = kill.active ? "suspended" : "active";
+  byId("killChip").classList.toggle("warn", Boolean(kill.active));
 
   const banner = byId("alertBanner");
-  if (budget > 0 && used >= budget) {
+  if (kill.active) {
+    banner.hidden = false;
+    banner.innerHTML = `<strong>Kill switch active.</strong> ${escapeHtml(
+      kill.reason || "No reason given.",
+    )} New sessions and turns are refused; reads and logs stay available.`;
+  } else if (budget > 0 && used >= budget) {
     banner.hidden = false;
     banner.innerHTML = `<strong>Daily token budget reached.</strong> ${tokens(used)} of ${tokens(
       budget,

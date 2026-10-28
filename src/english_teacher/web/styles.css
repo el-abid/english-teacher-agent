@@ -876,3 +876,86 @@ code {
   padding: 1px 4px;
   border-radius: 4px;
 }
+
+/* Governance / Agent Card */
+.chip.warn {
+  background: #f7e7e2;
+  color: var(--danger);
+}
+
+.stat-value.compact {
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.gov-section {
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+
+.gov-section h2 {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.gov-section h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  margin: 10px 0 4px;
+}
+
+.gov-section p {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.gov-section ul {
+  margin: 6px 0 0;
+  padding-left: 17px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.gov-section li + li {
+  margin-top: 3px;
+}
+
+.gov-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.gov-owner {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px 14px;
+}
+
+.gov-owner strong {
+  display: block;
+  font-family: var(--serif);
+  font-size: 17px;
+  margin-bottom: 2px;
+}
+
+.gov-owner a {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.gov-section .table-wrap {
+  margin-top: 8px;
+}

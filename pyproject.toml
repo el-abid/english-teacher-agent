@@ -1,6 +1,6 @@
 [project]
 name = "english-teacher-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "CEFR-aware AI language teacher agent for high-school students, built with LangGraph"
 requires-python = ">=3.11"
 dependencies = [
@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 english-teacher = "english_teacher.cli:main"
 english-teacher-web = "english_teacher.server:main"
+english-teacher-governance = "english_teacher.governance:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -26,7 +27,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-english_teacher = ["web/*"]
+english_teacher = ["web/*", "agent_card.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

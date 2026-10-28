@@ -1,0 +1,32 @@
+services:
+  tutor:
+    build: .
+    image: english-teacher-agent:0.2.0
+    env_file:
+      - .env
+    environment:
+      ENGLISH_TEACHER_HOST: 0.0.0.0
+      ENGLISH_TEACHER_PORT: "8000"
+      ENGLISH_TEACHER_DB: /data/sessions.sqlite
+      ENGLISH_TEACHER_EVENTS_DB: /data/events.sqlite
+      ENGLISH_TEACHER_KILL_SWITCH_FILE: /data/kill-switch.json
+    ports:
+      - "8000:8000"
+    volumes:
+      - tutor-data:/data
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  tutor-data:

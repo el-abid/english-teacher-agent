@@ -18,15 +18,17 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from . import alerts
+from . import __version__, alerts
+from .agent_card import load_agent_card
 from .cefr import SKILLS
 from .config import load_env_file, load_settings
+from .governance import KillSwitch, admin_token, kill_switch_path, token_matches
 from .graph import compile_graph, initial_state, make_checkpointer
 from .languages import get_language, language_catalogue
 from .observability import EventStore, TokenMeter, detail_for
@@ -47,6 +49,12 @@ class NewSession(BaseModel):
 
 class StudentReply(BaseModel):
     message: str = Field(min_length=1, max_length=6000)
+
+
+class KillSwitchChange(BaseModel):
+    active: bool
+    reason: str = Field(default="", max_length=300)
+    actor: str = Field(default="operator", max_length=80)
 
 
 def _payload(interrupts: Any) -> dict | None:
@@ -122,8 +130,10 @@ def create_app(
     checkpointer: Any = None,
     db_path: str | None = None,
     events_path: str | None = None,
+    kill_switch: KillSwitch | None = None,
+    admin_secret: str | None = None,
 ) -> FastAPI:
-    """Build the app. ``llm``, ``checkpointer`` and ``events_path`` are injectable."""
+    """Build the app. Dependencies, governance state and the admin secret are injectable."""
     settings = load_settings()
     path = db_path if db_path is not None else settings.db_path
     graph = compile_graph(checkpointer or make_checkpointer(path))
@@ -132,9 +142,21 @@ def create_app(
         or os.getenv("ENGLISH_TEACHER_EVENTS_DB")
         or str(Path(path or "sessions.sqlite").with_name("events.sqlite"))
     )
+    switcher = kill_switch or KillSwitch(kill_switch_path(path or store.path))
+    expected_admin = admin_secret if admin_secret is not None else admin_token()
     lock = threading.Lock()
 
     app = FastAPI(title="Language Teacher Agent", docs_url="/api/docs", lifespan=_lifespan)
+
+    def ensure_running() -> None:
+        state = switcher.status()
+        if state["active"]:
+            reason = state["reason"] or "no reason given"
+            raise HTTPException(
+                status_code=503,
+                detail=f"Kill switch active: {reason}",
+                headers={"Retry-After": "60"},
+            )
 
     def config_for(
         thread_id: str,
@@ -198,12 +220,59 @@ def create_app(
 
     @app.get("/api/health")
     def health() -> dict:
+        switch = switcher.status()
         return {
             "status": "ok",
+            "version": __version__,
             "model": settings.model,
             "tracing": "langfuse" if tracing_configured() else "off",
             "alerts": "email" if alerts.email_configured() else "off",
+            "kill_switch": "active" if switch["active"] else "off",
         }
+
+    @app.get("/api/governance")
+    def governance() -> dict:
+        switch = switcher.status()
+        return {
+            "version": __version__,
+            "status": "suspended" if switch["active"] else "active",
+            "kill_switch": switch,
+            "admin_api": bool(expected_admin),
+            "agent_card": "/api/agent-card",
+            "runbook": "docs/RUNBOOK.md",
+            "changelog": "CHANGELOG.md",
+        }
+
+    def card_payload() -> dict:
+        return load_agent_card(kill_switch=switcher, model=settings.model)
+
+    @app.get("/api/agent-card")
+    def agent_card() -> dict:
+        return card_payload()
+
+    @app.get("/.well-known/agent-card.json")
+    def well_known_agent_card() -> dict:
+        return card_payload()
+
+    @app.post("/api/admin/kill-switch")
+    def set_kill_switch(
+        payload: KillSwitchChange,
+        x_admin_token: str | None = Header(default=None),
+    ) -> dict:
+        if not expected_admin:
+            raise HTTPException(
+                status_code=404,
+                detail="Admin API disabled; set ENGLISH_TEACHER_ADMIN_TOKEN",
+            )
+        if not token_matches(expected_admin, x_admin_token or ""):
+            raise HTTPException(status_code=403, detail="Invalid admin token")
+        status = switcher.set(payload.active, reason=payload.reason, actor=payload.actor)
+        store.record(
+            "governance",
+            "kill_switch_on" if payload.active else "kill_switch_off",
+            detail=f"actor={payload.actor} reason={payload.reason}",
+        )
+        return status
 
     @app.get("/api/levels")
     def levels(language: str = "") -> list[dict]:
@@ -215,6 +284,7 @@ def create_app(
 
     @app.post("/api/sessions")
     def start_session(payload: NewSession) -> dict:
+        ensure_running()
         thread_id = f"web-{uuid.uuid4().hex[:12]}"
         user_id = payload.name.strip()
         language = get_language(payload.language)
@@ -251,6 +321,7 @@ def create_app(
 
     @app.post("/api/sessions/{thread_id}/messages")
     def send_message(thread_id: str, payload: StudentReply) -> dict:
+        ensure_running()
         text = payload.message.strip()
         if not text:
             raise HTTPException(status_code=422, detail="Empty message")
@@ -283,10 +354,13 @@ def create_app(
 
     @app.get("/api/dashboard")
     def dashboard(limit: int = 50, kind: str = "") -> dict:
-        wanted = kind if kind in {"turn", "llm", "error", "alert"} else ""
+        wanted = kind if kind in {"turn", "llm", "error", "alert", "governance"} else ""
+        switch = switcher.status()
         return {
+            "version": __version__,
             "model": settings.model,
             "tracing": "langfuse" if tracing_configured() else "off",
+            "kill_switch": switch,
             "totals": store.totals(),
             "alerts": alerts.status(store),
             "events": store.recent(limit=limit, kind=wanted),
@@ -296,9 +370,24 @@ def create_app(
     def dashboard_page() -> FileResponse:
         return FileResponse(WEB_DIR / "dashboard.html")
 
+    @app.get("/governance")
+    def governance_page() -> FileResponse:
+        return FileResponse(WEB_DIR / "governance.html")
+
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(WEB_DIR / "index.html")
+
+    @app.middleware("http")
+    async def security_headers(request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault(
+            "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+        )
+        return response
 
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app
@@ -311,7 +400,10 @@ def main() -> None:
     db_path = os.getenv("ENGLISH_TEACHER_DB") or "sessions.sqlite"
     host = os.getenv("ENGLISH_TEACHER_HOST", "127.0.0.1")
     port = int(os.getenv("ENGLISH_TEACHER_PORT", "8000"))
-    print(f"Language teacher web UI: http://{host}:{port}  (sessions in {db_path})")
+    print(
+        f"Language teacher web UI v{__version__}: http://{host}:{port}  "
+        f"(sessions in {db_path})"
+    )
     uvicorn.run(create_app(db_path=db_path), host=host, port=port)
 
 

@@ -13,10 +13,17 @@ from english_teacher.graph import make_checkpointer
 from english_teacher.server import create_app
 
 
-def make_client(llm: ScriptedLLM, events_path: str | None = None) -> TestClient:
+def make_client(llm: ScriptedLLM, events_path: str | None = None, **kwargs) -> TestClient:
     # Never touch the real events.sqlite: every test gets its own temp log.
     path = events_path or str(Path(tempfile.mkdtemp()) / "events.sqlite")
-    return TestClient(create_app(llm=llm, checkpointer=make_checkpointer(), events_path=path))
+    return TestClient(
+        create_app(
+            llm=llm,
+            checkpointer=make_checkpointer(),
+            events_path=path,
+            **kwargs,
+        )
+    )
 
 
 def test_levels_endpoint_lists_the_ladder():
