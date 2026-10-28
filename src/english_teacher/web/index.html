@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ms. Rivera · English tutor</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="side">
+        <div class="brand">
+          <div class="avatar" aria-hidden="true">MR</div>
+          <div>
+            <h1>Ms. Rivera</h1>
+            <p class="muted small">English tutor · CEFR A1 to C2</p>
+          </div>
+        </div>
+
+        <section class="card" id="statusCard" hidden>
+          <div class="row">
+            <span class="chip" id="levelChip">B1</span>
+            <span class="chip ghost" id="phaseChip">lesson</span>
+          </div>
+          <p class="topic" id="topicLabel"></p>
+          <div class="progress">
+            <div class="bar"><span id="topicBar"></span></div>
+            <p class="muted small" id="topicCount"></p>
+          </div>
+          <h2>Skills</h2>
+          <ul class="skills" id="skills"></ul>
+          <div class="result" id="resultBox" hidden></div>
+        </section>
+
+        <button class="ghost-btn" id="resetBtn" type="button" hidden>Start over</button>
+        <a class="ghost-btn" id="dashLink" href="/dashboard">Logs &amp; tokens →</a>
+        <p class="footnote">
+          Level changes only after a passed exam. <span id="threadTag" class="muted"></span>
+        </p>
+      </aside>
+
+      <main class="stage">
+        <div class="chat" id="chat" aria-live="polite"></div>
+
+        <div class="boot" id="boot">
+          <form id="startForm" class="start">
+            <h2>Start where you are.</h2>
+            <p class="muted">
+              Pick your level. Ms. Rivera runs a three-question check, then teaches to it.
+            </p>
+
+            <div class="fields">
+              <label>
+                Name
+                <input id="nameInput" name="name" autocomplete="nickname" maxlength="60" placeholder="Yassine" />
+              </label>
+              <label>
+                Goal <span class="muted">(optional)</span>
+                <input id="goalInput" maxlength="300" placeholder="pass the bac, travel, coding" />
+              </label>
+            </div>
+
+            <fieldset class="levels" id="levelPicker">
+              <legend>Starting level</legend>
+            </fieldset>
+
+            <button class="primary" type="submit" id="startBtn">Start learning</button>
+            <p class="error" id="bootError" role="alert" hidden></p>
+          </form>
+        </div>
+
+        <form class="composer" id="composer" hidden>
+          <textarea
+            id="input"
+            rows="2"
+            placeholder="Type your answer. Enter to send, Shift+Enter for a new line."
+            maxlength="6000"
+          ></textarea>
+          <button class="primary" type="submit" id="sendBtn">Send</button>
+        </form>
+      </main>
+    </div>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

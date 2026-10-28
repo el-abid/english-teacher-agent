@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ms. Rivera · Logs &amp; tokens</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="dash">
+      <header class="dash-head">
+        <div class="brand">
+          <div class="avatar" aria-hidden="true">MR</div>
+          <div>
+            <h1>Logs &amp; tokens</h1>
+            <p class="muted small">Local copy of every turn, model call and failure</p>
+          </div>
+        </div>
+        <div class="dash-actions">
+          <span class="chip ghost" id="tracingChip">tracing …</span>
+          <span class="chip ghost" id="alertsChip">alerts …</span>
+          <a class="ghost-btn" href="/">← Tutor</a>
+        </div>
+      </header>
+
+      <section class="cards" id="cards"></section>
+
+      <section class="dash-banner" id="alertBanner" hidden></section>
+
+      <section class="dash-panel">
+        <div class="dash-toolbar">
+          <div class="filters" id="filters">
+            <button type="button" data-kind="" class="filter" aria-pressed="true">All</button>
+            <button type="button" data-kind="turn" class="filter" aria-pressed="false">Turns</button>
+            <button type="button" data-kind="llm" class="filter" aria-pressed="false">Model calls</button>
+            <button type="button" data-kind="error" class="filter" aria-pressed="false">Errors</button>
+            <button type="button" data-kind="alert" class="filter" aria-pressed="false">Alerts</button>
+          </div>
+          <label class="auto">
+            <input type="checkbox" id="autoRefresh" checked />
+            auto-refresh 5s
+          </label>
+        </div>
+
+        <div class="table-wrap">
+          <table class="events">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Kind</th>
+                <th>Name</th>
+                <th>Student</th>
+                <th>Thread</th>
+                <th class="num">Latency</th>
+                <th class="num">Tokens in</th>
+                <th class="num">Tokens out</th>
+                <th class="num">Cost</th>
+                <th>Detail</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+          <p class="empty" id="empty" hidden>No events yet. Run a lesson turn.</p>
+        </div>
+      </section>
+
+      <p class="footnote">
+        Tokens come from the model's own usage metadata. Cost is an estimate using
+        <span id="pricing">configured prices</span>; change them with
+        <code>ENGLISH_TEACHER_PRICE_INPUT_PER_M</code> and
+        <code>ENGLISH_TEACHER_PRICE_OUTPUT_PER_M</code>.
+      </p>
+    </div>
+
+    <script src="/static/dashboard.js" defer></script>
+  </body>
+</html>
